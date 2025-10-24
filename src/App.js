@@ -121,6 +121,10 @@ export default function App() {
       }
     }
     loadData();
+    
+    // Auto-reload data every 30 seconds to keep in sync
+    const interval = setInterval(loadData, 30000);
+    return () => clearInterval(interval);
   }, []);
 
   // Save data to server whenever values change (debounced)
