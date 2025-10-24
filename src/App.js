@@ -86,59 +86,70 @@ function toCSV(rows, scoresMap) {
   return lines.join("\n");
 }
 
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001';
+
 export default function App() {
-  const [teamInput, setTeamInput] = useState(() => {
-    const saved = localStorage.getItem("turnierplaner_teams");
-    return saved || "Team A\nTeam B\nTeam C\nTeam D";
-  });
-  const [fields, setFields] = useState(() => {
-    const saved = localStorage.getItem("turnierplaner_fields");
-    return saved ? Number(saved) : 2;
-  });
-  const [matchMin, setMatchMin] = useState(() => {
-    const saved = localStorage.getItem("turnierplaner_matchMin");
-    return saved ? Number(saved) : 20;
-  });
-  const [breakMin, setBreakMin] = useState(() => {
-    const saved = localStorage.getItem("turnierplaner_breakMin");
-    return saved ? Number(saved) : 5;
-  });
+  const [teamInput, setTeamInput] = useState("Team A\nTeam B\nTeam C\nTeam D");
+  const [fields, setFields] = useState(2);
+  const [matchMin, setMatchMin] = useState(20);
+  const [breakMin, setBreakMin] = useState(5);
   const [startLocal, setStartLocal] = useState(() => {
-    const saved = localStorage.getItem("turnierplaner_startLocal");
-    if (saved) return saved;
     const d = new Date(); d.setSeconds(0,0); d.setHours(10,0,0,0); return toDateLocalInputValue(d);
   });
+  const [scores, setScores] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [saveStatus, setSaveStatus] = useState('');
 
-  // Endstände werden hier gespeichert: { [matchKey]: "1:1" }
-  const [scores, setScores] = useState(() => {
-    const saved = localStorage.getItem("turnierplaner_scores");
-    return saved ? JSON.parse(saved) : {};
-  });
-
-  // Save to localStorage whenever values change
+  // Load data from server on mount
   useEffect(() => {
-    localStorage.setItem("turnierplaner_teams", teamInput);
-  }, [teamInput]);
+    async function loadData() {
+      try {
+        const response = await fetch(`${API_URL}/api/tournament`);
+        if (response.ok) {
+          const data = await response.json();
+          setTeamInput(data.teamInput || "Team A\nTeam B\nTeam C\nTeam D");
+          setFields(data.fields || 2);
+          setMatchMin(data.matchMin || 20);
+          setBreakMin(data.breakMin || 5);
+          setStartLocal(data.startLocal || toDateLocalInputValue(new Date()));
+          setScores(data.scores || {});
+        }
+      } catch (error) {
+        console.error('Error loading data:', error);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadData();
+  }, []);
 
+  // Save data to server whenever values change (debounced)
   useEffect(() => {
-    localStorage.setItem("turnierplaner_fields", String(fields));
-  }, [fields]);
+    if (loading) return; // Don't save during initial load
+    
+    const timeoutId = setTimeout(async () => {
+      try {
+        setSaveStatus('Speichern...');
+        const response = await fetch(`${API_URL}/api/tournament`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ teamInput, fields, matchMin, breakMin, startLocal, scores })
+        });
+        
+        if (response.ok) {
+          setSaveStatus('✓ Gespeichert');
+          setTimeout(() => setSaveStatus(''), 2000);
+        } else {
+          setSaveStatus('✗ Fehler beim Speichern');
+        }
+      } catch (error) {
+        console.error('Error saving data:', error);
+        setSaveStatus('✗ Fehler beim Speichern');
+      }
+    }, 1000); // Debounce: wait 1 second after last change
 
-  useEffect(() => {
-    localStorage.setItem("turnierplaner_matchMin", String(matchMin));
-  }, [matchMin]);
-
-  useEffect(() => {
-    localStorage.setItem("turnierplaner_breakMin", String(breakMin));
-  }, [breakMin]);
-
-  useEffect(() => {
-    localStorage.setItem("turnierplaner_startLocal", startLocal);
-  }, [startLocal]);
-
-  useEffect(() => {
-    localStorage.setItem("turnierplaner_scores", JSON.stringify(scores));
-  }, [scores]);
+    return () => clearTimeout(timeoutId);
+  }, [teamInput, fields, matchMin, breakMin, startLocal, scores, loading]);
 
   const teams = useMemo(() =>
     teamInput.split(/\n|,|;|\|/).map(s=>s.trim()).filter(Boolean), [teamInput]);
@@ -192,9 +203,25 @@ export default function App() {
     return `${left}:${right}`;
   }
 
+  if (loading) {
+    return (
+      <div style={{fontFamily:"system-ui, Arial", padding:"16px", maxWidth:1200, margin:"0 auto", textAlign:"center"}}>
+        <h1>⚽ Turnierplaner – Jeder gegen Jeden</h1>
+        <p>Lade Daten...</p>
+      </div>
+    );
+  }
+
   return (
     <div style={{fontFamily:"system-ui, Arial", padding:"16px", maxWidth:1200, margin:"0 auto"}}>
-      <h1>⚽ Turnierplaner – Jeder gegen Jeden</h1>
+      <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16}}>
+        <h1 style={{margin:0}}>⚽ Turnierplaner – Jeder gegen Jeden</h1>
+        {saveStatus && (
+          <div style={{fontSize:14, color: saveStatus.includes('✓') ? '#22c55e' : saveStatus.includes('✗') ? '#ef4444' : '#6b7280'}}>
+            {saveStatus}
+          </div>
+        )}
+      </div>
 
       <div style={{display:"grid", gridTemplateColumns:"1fr 2fr", gap:16}}>
         <div style={{border:"1px solid #ddd", borderRadius:8, padding:12}}>
